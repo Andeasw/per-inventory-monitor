@@ -1,6 +1,6 @@
-# VPS Inventory Monitor By Prince
+#  Inventory monitor for a custom-designed website
 
-A robust, dockerized Node.js application to monitor VPS stock availability with session reuse, global cooldown, and multi-channel notifications.
+A robust, dockerized Node.js application to monitor  stock availability with session reuse, global cooldown, and multi-channel notifications.
 
 ## Features
 
