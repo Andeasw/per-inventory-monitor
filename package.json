@@ -1,20 +1,13 @@
 {
-  "name": "vps-inventory-monitor-prince",
-  "version": "1.0.0",
-  "description": "VPS Inventory Monitor with Session Reuse & Global Cooldown",
+  "name": "template-resource-monitor-prince",
+  "version": "0.0.1",
+  "description": "Resource Availability Monitor for Specific Web Templates By Prince",
   "main": "index.js",
+  "author": "Prince",
+  "license": "MIT",
   "scripts": {
     "start": "node index.js"
   },
-  "keywords": [
-    "vps",
-    "monitor",
-    "stock",
-    "inventory",
-    "docker"
-  ],
-  "author": "Prince",
-  "license": "MIT",
   "dependencies": {
     "axios": "^1.6.7",
     "cheerio": "^1.0.0-rc.12",
