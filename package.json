@@ -1,7 +1,7 @@
 {
   "name": "template-resource-monitor-prince",
-  "version": "0.0.1",
-  "description": "Resource Availability Monitor for Specific Web Templates By Prince",
+  "version": "1.0.0",
+  "description": "Generic Resource Availability Monitor By Prince",
   "main": "index.js",
   "author": "Prince",
   "license": "MIT",
