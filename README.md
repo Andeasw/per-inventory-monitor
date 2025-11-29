@@ -59,3 +59,66 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./data:/app/data
+```
+
+---
+
+## ⚙️ Environment Variables
+
+### 1. Target Configuration (Required)
+
+| Variable | Description | Example |
+| :--- | :--- | :--- |
+| `SITE_LOGIN_URL` | The login page URL (POST target). | `https://site.com/login` |
+| `SITE_STOCK_URL` | The page where inventory is displayed. | `https://site.com/cart` |
+| `SITE_USERNAME` | Account email/username. | `admin@test.com` |
+| `SITE_PASSWORD` | Account password. | `123456` |
+
+### 2. Monitoring Strategy (Optional)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `CHECK_INTERVAL` | Interval between checks (in ms). | `60000` (60s) |
+| `NOTIFY_COOLDOWN` | Silence period after a notification (in ms). | `600000` (10m) |
+| `DAILY_REPORT_HOUR` | Hour to send daily health report (0-23). | `12` (12:00 PM) |
+
+### 3. Notification - SMTP Email (Optional)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `SMTP_ENABLED` | Enable Email notifications (`true`/`false`). | `false` |
+| `SMTP_HOST` | SMTP Server Host. | `smtp.qq.com` |
+| `SMTP_PORT` | SMTP Server Port. | `587` |
+| `SMTP_SECURE` | Use SSL? Set `false` for port 587. | `false` |
+| `SMTP_USER` | SMTP Username / Email. | - |
+| `SMTP_PASS` | SMTP Password / Auth Code. | - |
+| `SMTP_RECEIVER` | Email address to receive alerts. | - |
+
+### 4. Notification - Telegram (Optional)
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `TG_ENABLED` | Enable Telegram notifications. | `false` |
+| `TG_BOT_TOKEN` | Your Bot Token from @BotFather. | - |
+| `TG_CHAT_ID` | Your User ID or Channel ID. | - |
+
+### 5. Advanced Selector Config (Optional)
+
+*Only change if the target website template is different.*
+
+| Variable | Description | Default |
+| :--- | :--- | :--- |
+| `SEL_CARD` | CSS selector for the product card. | `.card.cartitem` |
+| `SEL_NAME` | CSS selector for product name inside card. | `h4` |
+| `SEL_INVENTORY` | CSS selector for inventory text. | `p.card-text` |
+
+---
+
+## 📂 Volume Mapping
+
+*   `/app/logs`: Stores application logs (rotated daily, 7-day retention).
+*   `/app/data`: Stores `monitor_state.json` (cool-down timers and session state).
+
+## 📄 License
+
+MIT License © [Prince]
