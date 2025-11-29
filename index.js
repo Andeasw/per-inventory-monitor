@@ -1,8 +1,9 @@
 /**
- * Project: VPS Inventory Monitor
+ * Template Resource Monitor
+ * Project: template-resource-monitor-prince
  * Author: Prince
  * Version: 1.0.0
- * License: MIT
+ * Description: Generic inventory monitor with session persistence and global cooldown.
  */
 
 const axios = require('axios');
@@ -14,25 +15,26 @@ const nodemailer = require('nodemailer');
 const http = require('http');
 
 // ============================================================================
-// 1. CONFIGURATION (LOAD FROM ENV)
+// CONFIGURATION (ALL FROM ENV)
 // ============================================================================
 
 const CONFIG = {
     SITE: {
-        LOGIN_URL: process.env.SITE_LOGIN_URL || 'https://cloud.zrvvv.com/login',
-        STOCK_URL: process.env.SITE_STOCK_URL || 'https://cloud.zrvvv.com/cart',
+        // 必须通过环境变量传入，代码中不保留任何默认目标
+        LOGIN_URL: process.env.SITE_LOGIN_URL,
+        STOCK_URL: process.env.SITE_STOCK_URL,
         USERNAME: process.env.SITE_USERNAME,
         PASSWORD: process.env.SITE_PASSWORD,
     },
     STRATEGY: {
-        CHECK_INTERVAL: parseInt(process.env.CHECK_INTERVAL) || 60000,       // Default: 60s
-        NOTIFY_COOLDOWN: parseInt(process.env.NOTIFY_COOLDOWN) || 600000,    // Default: 10m
-        DAILY_REPORT_HOUR: parseInt(process.env.DAILY_REPORT_HOUR) || 12,    // Default: 12:00 CST
+        CHECK_INTERVAL: parseInt(process.env.CHECK_INTERVAL) || 60000,       // 60s
+        NOTIFY_COOLDOWN: parseInt(process.env.NOTIFY_COOLDOWN) || 600000,    // 10m
+        DAILY_REPORT_HOUR: parseInt(process.env.DAILY_REPORT_HOUR) || 12,    // 12:00
         COOKIE_MAX_AGE: 86400000 // 24 Hours
     },
     SMTP: {
         ENABLED: process.env.SMTP_ENABLED === 'true',
-        HOST: process.env.SMTP_HOST || 'smtp.qq.com',
+        HOST: process.env.SMTP_HOST,
         PORT: parseInt(process.env.SMTP_PORT) || 587,
         SECURE: process.env.SMTP_SECURE === 'true',
         AUTH: {
@@ -47,24 +49,25 @@ const CONFIG = {
         CHAT_ID: process.env.TG_CHAT_ID
     },
     SYSTEM: {
-        PORT: 3000,
+        PORT: 2996,
         LOG_DIR: path.join(__dirname, 'logs'),
         STATE_FILE: path.join(__dirname, 'data', 'monitor_state.json'),
         LOG_RETENTION_DAYS: 7,
         MAX_LOG_SIZE: 15 * 1024 * 1024 // 15MB
     },
+    // 默认适配通用 WHMCS 模板选择器，也可通过环境变量覆盖
     SELECTOR: {
-        CARD: '.card.cartitem',
-        NAME: 'h4',
-        INVENTORY: 'p.card-text'
+        CARD: process.env.SEL_CARD || '.card.cartitem',
+        NAME: process.env.SEL_NAME || 'h4',
+        INVENTORY: process.env.SEL_INVENTORY || 'p.card-text'
     }
 };
 
 // ============================================================================
-// 2. INITIALIZATION
+// INFRASTRUCTURE SETUP
 // ============================================================================
 
-// Ensure directories exist
+// Initialize Directories
 [CONFIG.SYSTEM.LOG_DIR, path.dirname(CONFIG.SYSTEM.STATE_FILE)].forEach(dir => {
     if (!fsSync.existsSync(dir)) fsSync.mkdirSync(dir, { recursive: true });
 });
@@ -72,7 +75,7 @@ const CONFIG = {
 // Global Session State
 const SESSION = { cookie: null, lastLoginTime: 0 };
 
-// HTTP Client (UTF-8 Enforced)
+// Axios Instance (UTF-8 Enforced)
 const api = axios.create({
     timeout: 30000,
     responseEncoding: 'utf8',
@@ -86,7 +89,7 @@ const api = axios.create({
 
 // Mail Transporter
 let mailTransporter = null;
-if (CONFIG.SMTP.ENABLED) {
+if (CONFIG.SMTP.ENABLED && CONFIG.SMTP.HOST) {
     mailTransporter = nodemailer.createTransport({
         host: CONFIG.SMTP.HOST,
         port: CONFIG.SMTP.PORT,
@@ -97,7 +100,7 @@ if (CONFIG.SMTP.ENABLED) {
 }
 
 // ============================================================================
-// 3. LOGGING & UTILS
+// LOGGING & TIME UTILS
 // ============================================================================
 
 function getBeijingTime() {
@@ -120,7 +123,7 @@ function log(module, message) {
             fsSync.appendFileSync(logFile, logLine);
         }
     } catch (e) {
-        console.error('Log write error:', e.message);
+        console.error('Logger Error:', e.message);
     }
 }
 
@@ -142,16 +145,16 @@ async function rotateLogs() {
 }
 
 // ============================================================================
-// 4. CORE LOGIC
+// CORE BUSINESS LOGIC
 // ============================================================================
 
-async function sendNotification(text, subject = 'VPS Notification') {
+async function sendNotification(text, subject = 'Resource Notification') {
     log('Notify', `Sending: "${subject}"`);
     const promises = [];
 
     if (CONFIG.SMTP.ENABLED && mailTransporter) {
         promises.push(mailTransporter.sendMail({
-            from: `"VPS Monitor" <${CONFIG.SMTP.AUTH.USER}>`,
+            from: `"Resource Monitor" <${CONFIG.SMTP.AUTH.USER}>`,
             to: CONFIG.SMTP.RECEIVER, subject, text
         }).catch(e => log('Email', `Error: ${e.message}`)));
     }
@@ -166,8 +169,8 @@ async function sendNotification(text, subject = 'VPS Notification') {
 }
 
 async function performLogin() {
-    if (!CONFIG.SITE.USERNAME || !CONFIG.SITE.PASSWORD) {
-        log('Auth', 'Missing Credentials in ENV. Please check configuration.');
+    if (!CONFIG.SITE.LOGIN_URL || !CONFIG.SITE.USERNAME || !CONFIG.SITE.PASSWORD) {
+        log('Auth', 'Missing URL or Credentials in Environment Variables.');
         return false;
     }
     try {
@@ -177,7 +180,7 @@ async function performLogin() {
         if (cookies && cookies.length > 0) {
             SESSION.cookie = cookies.map(c => c.split(';')[0]).join('; ');
             SESSION.lastLoginTime = Date.now();
-            log('Auth', 'Session refreshed successfully.');
+            log('Auth', 'Session refreshed.');
             return true;
         }
         return false;
@@ -188,6 +191,11 @@ async function performLogin() {
 }
 
 async function fetchPage() {
+    if (!CONFIG.SITE.STOCK_URL) {
+        log('Network', 'Missing STOCK_URL in Environment Variables.');
+        return null;
+    }
+
     if (!SESSION.cookie || (Date.now() - SESSION.lastLoginTime > CONFIG.STRATEGY.COOKIE_MAX_AGE)) {
         await performLogin();
     }
@@ -196,9 +204,9 @@ async function fetchPage() {
         let res = await api.get(CONFIG.SITE.STOCK_URL, { headers: { Cookie: SESSION.cookie } });
         let $ = cheerio.load(res.data, { decodeEntities: true });
 
-        // Retry login if selector not found
+        // Auto Re-login if content invalid (Selector check)
         if ($(CONFIG.SELECTOR.CARD).length === 0) {
-            log('Network', 'Invalid session, retrying login...');
+            log('Network', 'Invalid content, retrying session...');
             if (await performLogin()) {
                 res = await api.get(CONFIG.SITE.STOCK_URL, { headers: { Cookie: SESSION.cookie } });
                 return cheerio.load(res.data, { decodeEntities: true });
@@ -214,19 +222,20 @@ async function fetchPage() {
 
 async function runTask() {
     let $ = null;
-    let stocks = {};
+    let items = {};
 
     try {
         $ = await fetchPage();
         if (!$) return;
 
+        // Parse Items
         $(CONFIG.SELECTOR.CARD).each(function () {
             const name = $(this).find(CONFIG.SELECTOR.NAME).text().trim();
             const match = $(this).find(`${CONFIG.SELECTOR.INVENTORY}:contains("inventory")`).text().match(/inventory\s*[：:]\s*(\d+)/i);
-            if (name && match) stocks[name] = parseInt(match[1]);
+            if (name && match) items[name] = parseInt(match[1]);
         });
 
-        const count = Object.keys(stocks).length;
+        const count = Object.keys(items).length;
         if (count === 0) return;
 
         // Load State
@@ -236,88 +245,93 @@ async function runTask() {
             state = { ...state, ...JSON.parse(data) };
         } catch (e) {}
 
-        // Logic Analysis
-        const inStockItems = [];
-        for (const [name, qty] of Object.entries(stocks)) {
-            if (qty > 0) inStockItems.push(`📦 **${name}**: ${qty}`);
+        // Check Availability
+        const availableList = [];
+        for (const [name, qty] of Object.entries(items)) {
+            if (qty > 0) availableList.push(`📦 **${name}**: ${qty}`);
         }
 
-        const hasStock = inStockItems.length > 0;
+        const hasStock = availableList.length > 0;
         const now = Date.now();
         const timeSinceNotify = now - state.lastNotifyTime;
 
-        log('Summary', `Scanned ${count} items. In Stock: ${inStockItems.length}`);
+        log('Summary', `Scanned ${count} items. Available: ${availableList.length}`);
 
-        // 1. Stock Notification (Global Cooldown)
+        // Logic 1: Stock Notification (Global Cooldown 10m)
         if (hasStock && timeSinceNotify > CONFIG.STRATEGY.NOTIFY_COOLDOWN) {
-            log('Notify', 'Stock found. Cooldown passed. Sending alert.');
-            const msg = `🟢 **VPS 有货提醒**\n\n${inStockItems.join('\n')}\n\n[👉 立即购买](${CONFIG.SITE.STOCK_URL})`;
-            await sendNotification(msg, `发现 ${inStockItems.length} 款 VPS 有货`);
+            log('Notify', 'Availability detected. Sending alert.');
+            const msg = `🟢 **资源有货提醒**\n\n${availableList.join('\n')}\n\n🕒 时间: ${getBeijingTime().toLocaleString('zh-CN')}\n[👉 立即查看](${CONFIG.SITE.STOCK_URL})`;
+            await sendNotification(msg, `发现 ${availableList.length} 个可用资源`);
             state.lastNotifyTime = now;
         } else if (hasStock) {
             const wait = Math.ceil((CONFIG.STRATEGY.NOTIFY_COOLDOWN - timeSinceNotify) / 1000);
             log('Notify', `Stock found but in cooldown (${wait}s remaining).`);
         }
 
-        // 2. Daily Report (Beijing Time 12:00)
+        // Logic 2: Daily Report
         const bjNow = getBeijingTime();
         const bjDateStr = bjNow.toISOString().split('T')[0];
         if (bjNow.getHours() === CONFIG.STRATEGY.DAILY_REPORT_HOUR && state.lastDailyDate !== bjDateStr) {
             await rotateLogs();
-            // Send report only if not in cooldown
+            // Send report if not recently notified
             if (timeSinceNotify > CONFIG.STRATEGY.NOTIFY_COOLDOWN) {
                 const report = `📅 **每日运行简报**\n----------------\n✅ 状态: 运行正常\n📦 监控: ${count} 个\n🟢 有货: ${hasStock?'是':'否'}\n🕒 时间: ${bjNow.toLocaleString('zh-CN')}`;
-                await sendNotification(report, 'VPS监控每日简报');
+                await sendNotification(report, '监控服务每日简报');
             }
             state.lastDailyDate = bjDateStr;
-            log('System', 'Daily maintenance done.');
+            log('System', 'Daily maintenance completed.');
         }
 
-        // Save State
         await fs.writeFile(CONFIG.SYSTEM.STATE_FILE, JSON.stringify(state, null, 2));
 
     } catch (e) {
         log('Error', `Task Error: ${e.message}`);
     } finally {
-        $ = null; stocks = null;
+        $ = null; items = null;
     }
 }
 
 // ============================================================================
-// SERVICE BOOTSTRAP
+// SERVICE ENTRY
 // ============================================================================
 
 async function bootstrap() {
-    log('System', '>>> By Prince V1.0.0 Starting...');
+    log('System', '>>> Template Resource Monitor By Prince Starting...');
+    
+    // Validate ENV
+    if (!CONFIG.SITE.LOGIN_URL || !CONFIG.SITE.STOCK_URL) {
+        log('Error', 'CRITICAL: SITE_LOGIN_URL or SITE_STOCK_URL not set.');
+        return;
+    }
 
     // Verify SMTP
     if (CONFIG.SMTP.ENABLED && mailTransporter) {
-        try { await mailTransporter.verify(); log('SMTP', '✅ Connected'); } 
-        catch (e) { log('SMTP', `❌ Config Error: ${e.message}`); }
+        try { await mailTransporter.verify(); log('SMTP', '✅ Connection Verified'); } 
+        catch (e) { log('SMTP', `❌ Connection Error: ${e.message}`); }
     }
 
-    // Self Check
+    // Self Test
     if (await performLogin()) {
         const $ = await fetchPage();
         if ($) {
             const count = $(CONFIG.SELECTOR.CARD).length;
-            log('System', `✅ Init Success. Monitoring ${count} items.`);
-            await sendNotification(`🔵 **服务启动成功**\nBy Prince V1.0.0\n监控: ${count} 个\n时区: CST (Beijing)`, 'VPS监控启动');
+            log('System', `✅ Self-test passed. Monitoring ${count} targets.`);
+            await sendNotification(`🔵 **监控服务启动成功**\nAuthor: Prince\n监控数: ${count}\n时区: Asia/Shanghai`, '监控服务启动');
         }
     } else {
-        log('Error', '❌ Login Failed. Check ENV variables.');
+        log('Error', '❌ Initial Login Failed. Check Credentials.');
     }
 
-    log('System', `Loop started (Interval: ${CONFIG.STRATEGY.CHECK_INTERVAL}ms)`);
+    log('System', `Service Loop Started (Interval: ${CONFIG.STRATEGY.CHECK_INTERVAL}ms)`);
     runTask();
     setInterval(runTask, CONFIG.STRATEGY.CHECK_INTERVAL);
 }
 
-// HTTP Keep-Alive Server
+// Health Check Server
 http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end(`VPS Monitor By Prince Running.\nTime: ${getBeijingTime().toLocaleString()}`);
+    res.end(`Resource Monitor By Prince Running.\nTime: ${getBeijingTime().toLocaleString()}`);
 }).listen(CONFIG.SYSTEM.PORT, () => {
-    log('System', `HTTP Server listening on ${CONFIG.SYSTEM.PORT}`);
+    log('System', `Health Check Port ${CONFIG.SYSTEM.PORT} Listening`);
     bootstrap();
 });
