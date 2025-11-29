@@ -3,8 +3,8 @@ FROM node:20-alpine
 
 # Metadata
 LABEL maintainer="Prince"
-LABEL version="0.0.1"
-LABEL description="Template Resource Monitor Service"
+LABEL project="template-resource-monitor-prince"
+LABEL version="1.0.0"
 
 # Timezone Configuration (Force Asia/Shanghai)
 RUN apk add --no-cache tzdata \
