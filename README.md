@@ -1,127 +1,68 @@
-# Template Resource Monitor
+# PerMonitorH
 
-[![Docker](https://img.shields.io/badge/Docker-Supported-blue.svg)](https://hub.docker.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Author](https://img.shields.io/badge/Author-Prince-orange.svg)]()
+A lightweight, Node.js-based inventory monitor for WHMCS template sites. Features automated stock checking, email/Telegram notifications, and a real-time web dashboard.
 
-A robust, dockerized Node.js application designed to monitor resource availability on WHMCS-based template websites. Features **Session Reuse**, **Global Cooldown**, **Auto-Discovery**, and multi-channel notifications.
+## Environment Variables (`.env`)
 
----
+Create a `.env` file in the root directory to configure the application.
 
-## ✨ Key Features
-
-*   **Session Persistence**: Reuses login cookies to prevent IP bans and reduce server load (1 login/day).
-*   **Global Cooldown**: Intelligent spam prevention. If stock is found, it notifies once and then waits (default 10m) before notifying again.
-*   **Auto-Discovery**: Automatically detects new products on the target page without code changes.
-*   **Log Rotation**: Built-in log management (7-day retention, 15MB limit) to prevent disk overflow.
-*   **UTF-8 Support**: Full support for Chinese characters in notifications and logs.
-*   **Docker Ready**: Fully configurable via Environment Variables.
-
----
-
-## 🚀 Quick Start (Docker Compose)
-
-Create a `docker-compose.yml` file and run `docker-compose up -d`.
-
-```yaml
-version: '3'
-
-services:
-  monitor:
-    image: your_username/template-resource-monitor-prince:latest
-    container_name: resource_monitor
-    restart: unless-stopped
-    environment:
-      # --- Target Website Config (Required) ---
-      - SITE_LOGIN_URL=https://example.com/login
-      - SITE_STOCK_URL=https://example.com/cart
-      - SITE_USERNAME=your_email@example.com
-      - SITE_PASSWORD=your_password
-      
-      # --- Strategy Config (Optional) ---
-      - CHECK_INTERVAL=60000          # Check every 60s
-      - NOTIFY_COOLDOWN=600000        # 10m cooldown after notification
-      
-      # --- SMTP Notification (Optional) ---
-      - SMTP_ENABLED=true
-      - SMTP_HOST=smtp.qq.com
-      - SMTP_PORT=587
-      - SMTP_SECURE=false
-      - SMTP_USER=your_email@qq.com
-      - SMTP_PASS=your_auth_code
-      - SMTP_RECEIVER=receiver@email.com
-      
-      # --- Telegram Notification (Optional) ---
-      - TG_ENABLED=true
-      - TG_BOT_TOKEN=123456:ABC-DEF...
-      - TG_CHAT_ID=123456789
-
-    volumes:
-      - ./logs:/app/logs
-      - ./data:/app/data
-```
-
----
-
-## ⚙️ Environment Variables
-
-### 1. Target Configuration (Required)
+### 1. Target Website (Required)
 
 | Variable | Description | Example |
 | :--- | :--- | :--- |
-| `SITE_LOGIN_URL` | The login page URL (POST target). | `https://site.com/login` |
-| `SITE_STOCK_URL` | The page where inventory is displayed. | `https://site.com/cart` |
-| `SITE_USERNAME` | Account email/username. | `admin@test.com` |
-| `SITE_PASSWORD` | Account password. | `123456` |
+| `SITE_URL` | The URL of the page to monitor (e.g., cart/inventory page). | `https://site.com/cart` |
+| `SITE_NAME` | Custom name for notifications. | `MyProvider` |
+| `LOGIN_REQUIRED` | Set to `true` if login is required to view stock. | `false` |
+| `LOGIN_URL` | The login submission URL (POST). Required if `LOGIN_REQUIRED=true`. | `https://site.com/login` |
+| `SITE_USER` | Login username/email. | `user@email.com` |
+| `SITE_PASS` | Login password. | `password123` |
 
-### 2. Monitoring Strategy (Optional)
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `CHECK_INTERVAL` | Interval between checks (in ms). | `60000` (60s) |
-| `NOTIFY_COOLDOWN` | Silence period after a notification (in ms). | `600000` (10m) |
-| `DAILY_REPORT_HOUR` | Hour to send daily health report (0-23). | `12` (12:00 PM) |
-
-### 3. Notification - SMTP Email (Optional)
+### 2. Strategy & System (Optional)
 
 | Variable | Description | Default |
 | :--- | :--- | :--- |
-| `SMTP_ENABLED` | Enable Email notifications (`true`/`false`). | `false` |
-| `SMTP_HOST` | SMTP Server Host. | `smtp.qq.com` |
-| `SMTP_PORT` | SMTP Server Port. | `587` |
-| `SMTP_SECURE` | Use SSL? Set `false` for port 587. | `false` |
-| `SMTP_USER` | SMTP Username / Email. | - |
-| `SMTP_PASS` | SMTP Password / Auth Code. | - |
-| `SMTP_RECEIVER` | Email address to receive alerts. | - |
+| `CHECK_INTERVAL` | Interval between checks in milliseconds. | `40000` (40s) |
+| `NOTIFY_GAP` | Cooldown period for restock notifications (ms). | `600000` (10m) |
+| `DAILY_REPORT_TIME`| Hour to send daily report (0-23). | `12` |
+| `SEND_TEST` | Send a test notification on startup (`true`/`false`). | `true` |
+| `RESTOCK_NOTIFY` | Enable/Disable restock alerts (`true`/`false`). | `true` |
+| `PORT` | Web dashboard port. | `3000` |
 
-### 4. Notification - Telegram (Optional)
+### 3. Notifications (Optional)
 
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `TG_ENABLED` | Enable Telegram notifications. | `false` |
-| `TG_BOT_TOKEN` | Your Bot Token from @BotFather. | - |
-| `TG_CHAT_ID` | Your User ID or Channel ID. | - |
+**SMTP (Email)**
+| Variable | Description |
+| :--- | :--- |
+| `SMTP_ENABLED` | Set to `true` to enable. |
+| `SMTP_HOST` | SMTP server host (e.g., `smtp.qq.com`). |
+| `SMTP_PORT` | SMTP port (usually `587` or `465`). |
+| `SMTP_SECURE` | `false` for port 587, `true` for 465. |
+| `SMTP_USER` | SMTP username / sender email. |
+| `SMTP_PASS` | SMTP password / app password. |
+| `SMTP_RECEIVER` | Recipient email address. |
 
-### 5. Advanced Selector Config (Optional)
-
-*Only change if the target website template is different.*
-
-| Variable | Description | Default |
-| :--- | :--- | :--- |
-| `SEL_CARD` | CSS selector for the product card. | `.card.cartitem` |
-| `SEL_NAME` | CSS selector for product name inside card. | `h4` |
-| `SEL_INVENTORY` | CSS selector for inventory text. | `p.card-text` |
-| `ENABLE_DOCKERHUB` | Build a switch. |  `true` |
-| `DOCKER_USERNAME` | Your User Name. | - |
-| `DOCKER_PASSWORD` | Your User Token. | - |
+**Telegram**
+| Variable | Description |
+| :--- | :--- |
+| `TG_ENABLED` | Set to `true` to enable. |
+| `TG_BOT_TOKEN` | Telegram Bot Token. |
+| `TG_CHAT_ID` | Telegram Chat ID. |
 
 ---
 
-## 📂 Volume Mapping
+## Security Note
 
-*   `/app/logs`: Stores application logs (rotated daily, 7-day retention).
-*   `/app/data`: Stores `monitor_state.json` (cool-down timers and session state).
+Upon first launch, the application will automatically **encrypt** your `.env` file into `.env.enc` and delete the plain text file. A `.secret.key` file will be generated for decryption. Keep this key file safe.
 
-## 📄 License
+## Quick Start
 
-MIT License © [Prince]
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Create .env file
+# (Paste variables from above)
+
+# 3. Start
+node server.js
+```
