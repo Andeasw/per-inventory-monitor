@@ -1,6 +1,6 @@
 /**
- * PerMonitorH v1.0.0 (Stable Encryption & Enhanced Web)
- * Author: Prince 2025.12
+ * PerMonitorH v1.0.0
+ * Author: Prince
  */
 
 const fs = require('fs');
@@ -9,92 +9,62 @@ const path = require('path');
 const dotenv = require('dotenv');
 
 // ============================================================================
-// 🔐 1. 稳定版自动加密模块 (STABLE AUTO-VAULT)
+// 🔐 1. 自动加密模块
 // ============================================================================
-(function stableSecurity() {
-    const envFile = path.join(__dirname, '.env');
-    const encFile = path.join(__dirname, '.env.enc');
-    const keyFile = path.join(__dirname, '.secret.key'); // 密钥文件
+(function autoSecurity() {
+    const env = path.join(__dirname, '.env');
+    const enc = path.join(__dirname, '.env.enc');
+    const key = path.join(__dirname, '.secret.key');
 
-    // A. 加密流程: 有 .env -> 生成随机密钥 -> 加密 -> 删 .env
-    if (fs.existsSync(envFile)) {
-        console.log('🔐 正在执行首次加密...');
+    // 加密
+    if (fs.existsSync(env)) {
         try {
-            // 1. 生成 32字节 随机密钥
-            const masterKey = crypto.randomBytes(32).toString('hex');
-            
-            // 2. 加密内容
-            const text = fs.readFileSync(envFile, 'utf8');
+            const k = crypto.randomBytes(32);
             const iv = crypto.randomBytes(16);
-            const keyBuffer = Buffer.from(masterKey, 'hex');
-            const cipher = crypto.createCipheriv('aes-256-cbc', keyBuffer, iv);
-            let encrypted = cipher.update(text, 'utf8', 'hex');
-            encrypted += cipher.final('hex');
-
-            // 3. 保存
-            fs.writeFileSync(keyFile, masterKey); // 保存密钥
-            fs.writeFileSync(encFile, iv.toString('hex') + ':' + encrypted); // 保存密文
-            fs.unlinkSync(envFile); // 销毁明文
-
-            console.log('✅ 加密成功！明文已销毁，密钥已保存至 .secret.key');
-        } catch (e) { console.error('❌ 加密失败:', e.message); process.exit(1); }
+            const cipher = crypto.createCipheriv('aes-256-cbc', k, iv);
+            let e = cipher.update(fs.readFileSync(env, 'utf8'), 'utf8', 'hex');
+            e += cipher.final('hex');
+            fs.writeFileSync(enc, iv.toString('hex') + ':' + e);
+            fs.writeFileSync(key, k.toString('hex'));
+            fs.unlinkSync(env);
+            console.log('✅ 配置已加密。');
+        } catch (e) { console.error('❌ 加密失败', e); process.exit(1); }
     }
 
-    // B. 解密流程: 读取 .secret.key -> 解密 .env.enc
-    if (fs.existsSync(encFile)) {
-        if (!fs.existsSync(keyFile)) {
-            console.error('❌ 启动失败: 找不到密钥文件 [.secret.key]。');
-            console.error('💡 解决: 请删除 .env.enc，重新创建 .env 文件。');
-            process.exit(1);
-        }
+    // 解密
+    if (fs.existsSync(enc) && fs.existsSync(key)) {
         try {
-            const masterKey = fs.readFileSync(keyFile, 'utf8').trim();
-            const content = fs.readFileSync(encFile, 'utf8').split(':');
-            const iv = Buffer.from(content[0], 'hex');
-            const encryptedText = content[1];
-            const keyBuffer = Buffer.from(masterKey, 'hex');
-            
-            const decipher = crypto.createDecipheriv('aes-256-cbc', keyBuffer, iv);
-            let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-            decrypted += decipher.final('utf8');
-            
-            // 注入环境变量
-            const conf = dotenv.parse(decrypted);
-            for (const k in conf) process.env[k] = conf[k];
-            
-        } catch (e) { 
-            console.error('❌ 解密失败: 密钥不匹配或文件损坏。请重置配置。'); 
-            process.exit(1); 
-        }
-    } else {
-        console.error('❌ 未找到配置文件。请新建 .env 文件。');
-        process.exit(1);
-    }
+            const k = Buffer.from(fs.readFileSync(key, 'utf8'), 'hex');
+            const p = fs.readFileSync(enc, 'utf8').split(':');
+            const d = crypto.createDecipheriv('aes-256-cbc', k, Buffer.from(p[0], 'hex'));
+            let t = d.update(p[1], 'hex', 'utf8');
+            t += d.final('utf8');
+            const c = dotenv.parse(t);
+            for (const x in c) process.env[x] = c[x];
+        } catch (e) { console.error('❌ 解密失败。'); process.exit(1); }
+    } else { console.error('❌ 找不到配置文件 (.env)。'); process.exit(1); }
 })();
 
 // ============================================================================
-// 📦 核心依赖加载
+// 📦 核心程序
 // ============================================================================
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const nodemailer = require('nodemailer');
 
-// 配置映射
 const CFG = {
     SITE: {
         URL: process.env.SITE_URL,
-        NAME: process.env.SITE_NAME || 'Monitor',
+        NAME: process.env.SITE_NAME,
         LOGIN: process.env.LOGIN_REQUIRED === 'true',
         LOGIN_URL: process.env.LOGIN_URL,
         USER: process.env.SITE_USER,
         PASS: process.env.SITE_PASS
     },
-    STRATEGY: {
+    APP: {
         INTERVAL: parseInt(process.env.CHECK_INTERVAL) || 40000,
-        GAP: parseInt(process.env.NOTIFY_GAP) || 600000,
-        REPORT_HR: parseInt(process.env.DAILY_REPORT_TIME),
-        RESTOCK_NOTIFY: process.env.RESTOCK_NOTIFY !== 'false',
+        GAP: parseInt(process.env.NOTIFY_GAP) || 900000, // 15m
         TEST: process.env.SEND_TEST === 'true',
         PORT: parseInt(process.env.PORT) || 3000,
         LOG: path.join(__dirname, 'monitor.log'),
@@ -116,14 +86,10 @@ const CFG = {
     },
     SEL: { BOX: '.card.cartitem', NAME: 'h4', TEXT: 'p.card-text' }
 };
-if (isNaN(CFG.STRATEGY.REPORT_HR)) CFG.STRATEGY.REPORT_HR = 12;
 
-// ============================================================================
-// 🔵 基础设施
-// ============================================================================
 const app = express();
 const SESSION = { cookie: null, lastLogin: 0 };
-const WEB = { items: [], logs: [], lastCheck: '-', status: 'INIT' };
+const WEB = { items: [], logs: [], lastCheck: '-' };
 const api = axios.create({ timeout: 30000, headers: { 'User-Agent': 'Mozilla/5.0' } });
 const mailer = CFG.SMTP.OPEN ? nodemailer.createTransport({
     host: CFG.SMTP.HOST, port: CFG.SMTP.PORT, secure: CFG.SMTP.SECURE,
@@ -136,8 +102,8 @@ function log(tag, msg) {
     const s = `[${time()}] [${tag}] ${msg}`;
     console.log(s);
     WEB.logs.unshift(s);
-    if (WEB.logs.length > 100) WEB.logs.pop(); // Web保留100条
-    try { fs.appendFileSync(CFG.STRATEGY.LOG, s + '\n'); } catch (e) {}
+    if (WEB.logs.length > 100) WEB.logs.pop();
+    try { fs.appendFileSync(CFG.APP.LOG, s + '\n'); } catch (e) {}
 }
 
 // ============================================================================
@@ -145,22 +111,23 @@ function log(tag, msg) {
 // ============================================================================
 async function notify(title, type, data = []) {
     log('Notify', `>>> Sending: ${title}`);
-    let tg = `🔔 *${title}*\n\n`;
-    let html = `<div style="border:1px solid #ccc;padding:15px;border-radius:5px"><h3>${title}</h3><hr>`;
+    let color = type === 'RESTOCK' ? '#28a745' : '#dc3545';
     
+    let tg = `🔔 *${title}*\n\n`;
     if (type === 'RESTOCK') {
-        data.forEach(i => {
-            tg += `📦 \`${i.name}\`: *${i.count}*\n`;
-            html += `<p>📦 <b>${i.name}</b>: <span style="color:green;font-weight:bold">${i.count}</span></p>`;
-        });
-        tg += `\n⚡️ [Link](${CFG.SITE.URL})`;
-        html += `<a href="${CFG.SITE.URL}" style="background:red;color:white;padding:10px;text-decoration:none">立即抢购</a>`;
-    } else {
-        tg += `❌ All items sold out.`;
-        html += `<p style="color:red">全部售罄。</p>`;
-    }
+        data.forEach(i => tg += `📦 \`${i.name}\`: *${i.count}*\n`);
+        tg += `\n⚡️ [立即前往](${CFG.SITE.URL})`;
+    } else tg += `❌ 已全部售罄。`;
     tg += `\n🕒 ${time()}`;
-    html += `<p style="color:#999;font-size:12px">${time()}</p></div>`;
+
+    let html = `<div style="border:1px solid #eee;padding:20px;border-radius:8px">
+        <h2 style="color:${color}">${title}</h2><p>${time()}</p><hr>`;
+    if (type === 'RESTOCK') {
+        html += `<ul>`;
+        data.forEach(i => html += `<li><b>${i.name}</b>: <span style="color:green;font-weight:bold">${i.count}</span></li>`);
+        html += `</ul><br><a href="${CFG.SITE.URL}" style="background:${color};color:#fff;padding:10px 20px;text-decoration:none">立即前往</a>`;
+    } else html += `<p style="color:red">已售罄。</p>`;
+    html += `</div>`;
 
     const p = [];
     if (CFG.TG.OPEN) p.push(api.post(`https://api.telegram.org/bot${CFG.TG.TOKEN}/sendMessage`, { chat_id: CFG.TG.ID, text: tg, parse_mode: 'Markdown', disable_web_page_preview: true }).catch(e => log('TG', e.message)));
@@ -169,7 +136,7 @@ async function notify(title, type, data = []) {
 }
 
 // ============================================================================
-// 🟠 核心逻辑
+// 🟠 监控逻辑
 // ============================================================================
 async function login() {
     if (!CFG.SITE.LOGIN) return true;
@@ -204,13 +171,10 @@ async function check() {
             if (name && match) items.push({ name, count: parseInt(match[1]) });
         });
 
-        if (items.length === 0) {
-            WEB.status = 'ERROR';
-            return;
-        }
+        if (items.length === 0) return;
 
-        let state = { lastNotify: 0, wasInStock: false, lastDaily: '' };
-        try { if (fs.existsSync(CFG.STRATEGY.STATE)) state = JSON.parse(fs.readFileSync(CFG.STRATEGY.STATE)); } catch (e) {}
+        let state = { lastNotify: 0, wasInStock: false };
+        try { if (fs.existsSync(CFG.APP.STATE)) state = JSON.parse(fs.readFileSync(CFG.APP.STATE)); } catch (e) {}
 
         const inStock = items.filter(i => i.count > 0);
         const hasStock = inStock.length > 0;
@@ -218,107 +182,114 @@ async function check() {
         
         WEB.items = inStock;
         WEB.lastCheck = time();
-        WEB.status = hasStock ? 'RESTOCK' : 'SOLDOUT';
         log('Audit', `Scan: ${items.map(i => `${i.name}(${i.count})`).join(', ')}`);
 
+        // 0->1(Notify) | 1->1(Gap Notify) | 1->0(Notify)
         if (hasStock) {
-            if (!state.wasInStock || (now - state.lastNotify > CFG.STRATEGY.GAP)) {
-                if (CFG.STRATEGY.RESTOCK_NOTIFY) await notify(`🟢 ${CFG.SITE.NAME} Restock`, 'RESTOCK', inStock);
+            if (!state.wasInStock || (now - state.lastNotify > CFG.APP.GAP)) {
+                await notify(`🟢 ${CFG.SITE.NAME} 补货`, 'RESTOCK', inStock);
                 state.lastNotify = now;
                 state.wasInStock = true;
             }
         } else {
             if (state.wasInStock) {
-                await notify(`🔴 ${CFG.SITE.NAME} Sold Out`, 'SOLDOUT');
+                await notify(`🔴 ${CFG.SITE.NAME} 售罄`, 'SOLDOUT');
                 state.wasInStock = false;
                 state.lastNotify = 0;
             }
         }
 
-        const bjDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
-        if (CFG.STRATEGY.REPORT_HR !== -1 && bjDate.getHours() === CFG.STRATEGY.REPORT_HR && state.lastDaily !== bjDate.toDateString()) {
-            await notify(`📋 ${CFG.SITE.NAME} Daily`, 'RESTOCK', [{name:'Status', count: hasStock?'Available':'Empty'}]);
-            state.lastDaily = bjDate.toDateString();
-        }
-
-        fs.writeFileSync(CFG.STRATEGY.STATE, JSON.stringify(state));
-    } catch (e) { 
-        log('Error', e.message); 
-        WEB.status = 'ERROR';
-    }
+        fs.writeFileSync(CFG.APP.STATE, JSON.stringify(state));
+    } catch (e) { log('Error', e.message); }
 }
 
 // ============================================================================
-// 🌐 Web UI (修复显示问题)
+// 🌐 Web Interface (Smart Visual)
 // ============================================================================
-app.get('/api/data', (req, res) => res.json({ ...WEB, interval: CFG.STRATEGY.INTERVAL }));
+app.get('/api/data', (req, res) => res.json({ ...WEB, interval: CFG.APP.INTERVAL }));
 app.get('/', (req, res) => res.send(`
 <!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Monitor</title>
 <link id="fav" rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>">
 <style>
-body{font-family:sans-serif;margin:0;padding:20px;background:#f0f2f5;transition:0.3s}
-.card{background:#fff;padding:20px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-width:800px;margin:0 auto}
-.head{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
-.status{padding:15px;border-radius:8px;text-align:center;font-weight:bold;font-size:1.2em;margin-bottom:20px}
+body{font-family:sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#333;transition:0.3s}
+.card{background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.05);max-width:800px;margin:0 auto}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.status{padding:20px;border-radius:8px;text-align:center;font-weight:bold;font-size:1.5em;margin-bottom:20px}
 .s-ok{background:#e3f2fd;color:#1565c0}
-.s-alert{background:#c62828;color:#fff;animation:pulse 0.8s infinite}
-.s-err{background:#ffe0b2;color:#e65100}
-.item{padding:12px;border-bottom:1px solid #eee;display:flex;justify-content:space-between}
-.cnt{color:#2e7d32;font-weight:bold}
-.log{background:#1e1e1e;color:#a9b7c6;padding:15px;height:300px;overflow-y:auto;font-size:12px;white-space:pre-wrap;border-radius:8px}
-.btn{width:100%;padding:15px;background:#ff9800;color:white;border:none;border-radius:8px;font-size:1.2em;cursor:pointer;margin-bottom:20px;display:none}
-@keyframes pulse{0%{opacity:1}50%{opacity:0.6}} .flash{background:#ffcdd2}
+.s-alert{background:#c62828;color:#fff}
+.item{padding:15px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;font-size:1.2em}
+.cnt{color:#28a745;font-weight:bold}
+.log{background:#1e1e1e;color:#82aaff;padding:15px;height:250px;overflow-y:auto;font-size:12px;white-space:pre-wrap;border-radius:8px;font-family:monospace}
+.btn{width:100%;padding:15px;background:#ff9800;color:white;border:none;border-radius:8px;font-size:1.2em;cursor:pointer;display:none}
 </style></head><body>
 <div class="card">
-    <div class="head"><h2>🛡️ PerMonitorH</h2><small id="t">Loading...</small></div>
-    <button id="btn" class="btn" onclick="stop()">🔕 停止报警</button>
-    <div id="box" class="status s-ok">正在连接...</div>
-    <h3>📦 实时库存</h3><div id="list"></div>
-    <h3>📜 运行日志</h3><div id="logs" class="log"></div>
+    <div class="header"><h2>🛡️ PerMonitorH</h2><small id="t">-</small></div>
+    <button id="btn" class="btn" onclick="stop()">🔕 停止声音</button>
+    <div id="box" class="status s-ok">连接中...</div>
+    <h3>📦 实时库存</h3><div id="list"></div><h3>📜 日志</h3><div id="logs" class="log"></div>
 </div>
 <script>
-let alarm=false, tm=null;
+let alarm=false, lastHash='', colorIdx=0;
+const colors=['#28a745','#ff9800','#2196f3','#9c27b0']; // 绿,橙,蓝,紫
 const okI="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>";
-const alI="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔴</text></svg>";
 const snd=new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
 
-function stop(){ alarm=false; document.getElementById('btn').style.display='none'; document.body.className=''; document.getElementById('box').className='status s-ok'; resetT(); }
-function flashT(){ if(tm)return; let s=false; tm=setInterval(()=>{ document.title=s?"【有货!!!】":"【快抢!!!】"; document.getElementById('fav').href=s?alI:okI; s=!s; },500); }
-function resetT(){ clearInterval(tm); tm=null; document.title="PerMonitorH"; document.getElementById('fav').href=okI; }
+function getIcon(color) {
+    return \`data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2250%22 fill=%22\${encodeURIComponent(color)}%22/></svg>\`;
+}
+
+function stop(){ alarm=false; document.getElementById('btn').style.display='none'; }
+
+function updateIcon(isChange) {
+    if(isChange) colorIdx = (colorIdx + 1) % colors.length;
+    document.getElementById('fav').href = getIcon(colors[colorIdx]);
+}
 
 function load(){
     fetch('/api/data').then(r=>r.json()).then(d=>{
-        document.getElementById('t').innerText = d.lastCheck;
-        const box = document.getElementById('box');
+        document.getElementById('t').innerText=d.lastCheck;
+        const box=document.getElementById('box');
+        const currentHash = JSON.stringify(d.items);
         
-        if(d.status === 'ERROR') {
-            box.className = 'status s-err'; box.innerText = '⚠️ 抓取失败/登录失效';
-        } else if(d.items.length > 0) {
+        if(d.items.length>0){
+            // 有货
+            box.className='status s-alert';
+            box.innerText=\`🚨 发现 \${d.items.length} 个资源！\`;
+            
+            // 图标逻辑: 如果数据变了，换个颜色；没变，保持原色
+            if(currentHash !== lastHash) updateIcon(true);
+            else updateIcon(false);
+            
+            // 声音逻辑
             if(!alarm && document.getElementById('btn').style.display==='none') alarm=true;
             if(alarm){
-                document.body.className='flash'; box.className='status s-alert'; 
-                box.innerText=\`🚨 发现 \${d.items.length} 个资源！\`; 
-                document.getElementById('btn').style.display='block'; 
-                flashT(); snd.play().catch(()=>{});
-            } else {
-                box.className='status s-ok'; box.style.background='#d4edda'; box.style.color='#155724'; box.innerText='✅ 发现资源 (已确认)';
+                document.getElementById('btn').style.display='block';
+                snd.play().catch(()=>{});
+                document.title = \`【!!! 有货 \${d.items.length} !!!】\`;
             }
         } else {
-            alarm=false; document.body.className=''; document.getElementById('btn').style.display='none'; 
-            box.className='status s-ok'; box.style.background='#e3f2fd'; box.style.color='#1565c0'; box.innerText='✅ 监控中 - 无货'; resetT();
+            // 无货
+            alarm=false;
+            document.getElementById('btn').style.display='none';
+            box.className='status s-ok'; 
+            box.innerText='✅ 监控中 - 无货';
+            document.title="PerMonitorH";
+            document.getElementById('fav').href = okI;
         }
         
-        document.getElementById('list').innerHTML = d.items.length ? d.items.map(i=>\`<div class="item"><span>\${i.name}</span><span class="cnt">\${i.count}</span></div>\`).join('') : '<div style="text-align:center;color:#999;padding:10px">无库存</div>';
-        document.getElementById('logs').innerText = d.logs.join('\\n');
-    }).catch(e=>{ document.getElementById('box').innerText='服务器连接断开'; document.getElementById('box').className='status s-err'; });
+        lastHash = currentHash;
+        
+        document.getElementById('list').innerHTML=d.items.length?d.items.map(i=>\`<div class="item"><span>\${i.name}</span><span class="cnt">\${i.count}</span></div>\`).join(''):'<div style="padding:15px;text-align:center;color:#999">无库存</div>';
+        document.getElementById('logs').innerText=d.logs.join('\\n');
+    });
 }
-setInterval(load, ${CFG.STRATEGY.INTERVAL}); load();
+setInterval(load, ${CFG.APP.INTERVAL}); load();
 </script></body></html>`));
 
 // Start
-app.listen(CFG.STRATEGY.PORT, async () => {
-    console.log(`[System] Web UI: http://localhost:${CFG.STRATEGY.PORT}`);
+app.listen(CFG.APP.PORT, async () => {
+    console.log(`[System] Web UI: http://localhost:${CFG.APP.PORT}`);
     if (CFG.SMTP.OPEN) try { await mailer.verify(); log('SMTP', '✅ OK'); } catch (e) { log('SMTP', e.message); }
-    if (CFG.STRATEGY.TEST) await notify(`🔵 ${CFG.SITE.NAME} Start`, 'RESTOCK', [{name:'Test', count:1}]);
-    check(); setInterval(check, CFG.STRATEGY.INTERVAL);
+    if (CFG.APP.TEST) await notify(`🔵 ${CFG.SITE.NAME} Start`, 'RESTOCK', [{name:'Test-Item', count:1}]);
+    check(); setInterval(check, CFG.APP.INTERVAL);
 });
