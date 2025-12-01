@@ -9,14 +9,13 @@ const path = require('path');
 const dotenv = require('dotenv');
 
 // ============================================================================
-// 🔐 1. 自动加密模块
+// 🔐 1. 自动加密
 // ============================================================================
 (function autoSecurity() {
     const env = path.join(__dirname, '.env');
     const enc = path.join(__dirname, '.env.enc');
     const key = path.join(__dirname, '.secret.key');
 
-    // 加密
     if (fs.existsSync(env)) {
         try {
             const k = crypto.randomBytes(32);
@@ -31,7 +30,6 @@ const dotenv = require('dotenv');
         } catch (e) { console.error('❌ 加密失败', e); process.exit(1); }
     }
 
-    // 解密
     if (fs.existsSync(enc) && fs.existsSync(key)) {
         try {
             const k = Buffer.from(fs.readFileSync(key, 'utf8'), 'hex');
@@ -42,7 +40,7 @@ const dotenv = require('dotenv');
             const c = dotenv.parse(t);
             for (const x in c) process.env[x] = c[x];
         } catch (e) { console.error('❌ 解密失败。'); process.exit(1); }
-    } else { console.error('❌ 找不到配置文件 (.env)。'); process.exit(1); }
+    } else { console.error('❌ 找不到配置文件。'); process.exit(1); }
 })();
 
 // ============================================================================
@@ -64,7 +62,7 @@ const CFG = {
     },
     APP: {
         INTERVAL: parseInt(process.env.CHECK_INTERVAL) || 40000,
-        GAP: parseInt(process.env.NOTIFY_GAP) || 900000, // 15m
+        GAP: parseInt(process.env.NOTIFY_GAP) || 600000,
         TEST: process.env.SEND_TEST === 'true',
         PORT: parseInt(process.env.PORT) || 3000,
         LOG: path.join(__dirname, 'monitor.log'),
@@ -125,8 +123,8 @@ async function notify(title, type, data = []) {
     if (type === 'RESTOCK') {
         html += `<ul>`;
         data.forEach(i => html += `<li><b>${i.name}</b>: <span style="color:green;font-weight:bold">${i.count}</span></li>`);
-        html += `</ul><br><a href="${CFG.SITE.URL}" style="background:${color};color:#fff;padding:10px 20px;text-decoration:none">立即前往</a>`;
-    } else html += `<p style="color:red">已售罄。</p>`;
+        html += `</ul><br><a href="${CFG.SITE.URL}" style="background:${color};color:#fff;padding:10px 20px;text-decoration:none">Go</a>`;
+    } else html += `<p style="color:red">Sold Out</p>`;
     html += `</div>`;
 
     const p = [];
@@ -136,7 +134,7 @@ async function notify(title, type, data = []) {
 }
 
 // ============================================================================
-// 🟠 监控逻辑
+// 🟠 监控逻辑 (核心修正版)
 // ============================================================================
 async function login() {
     if (!CFG.SITE.LOGIN) return true;
@@ -184,18 +182,33 @@ async function check() {
         WEB.lastCheck = time();
         log('Audit', `Scan: ${items.map(i => `${i.name}(${i.count})`).join(', ')}`);
 
-        // 0->1(Notify) | 1->1(Gap Notify) | 1->0(Notify)
+        // --- 逻辑修正：严格状态翻转 (Strict Flip-Flop) ---
         if (hasStock) {
-            if (!state.wasInStock || (now - state.lastNotify > CFG.APP.GAP)) {
-                await notify(`🟢 ${CFG.SITE.NAME} 补货`, 'RESTOCK', inStock);
-                state.lastNotify = now;
+            // 场景: 0 -> 1 (补货)
+            // 只有当"之前状态是无货"时，才触发通知
+            if (!state.wasInStock) {
+                // 冷却检查: 防止短时间内反复 0->1->0->1 造成的刷屏
+                if (now - state.lastNotify > CFG.APP.GAP) {
+                    await notify(`🟢 ${CFG.SITE.NAME} 补货通知`, 'RESTOCK', inStock);
+                    state.lastNotify = now;
+                    state.wasInStock = true;
+                } else {
+                    log('Limit', 'Restock detected but inside cooldown gap. Notification skipped.');
+                    // 这里保持 wasInStock = false，以便冷却结束后能再次尝试触发
+                }
+            } else {
+                // 场景: 1 -> 1 (持续有货)
+                // 之前有货，现在也有货 -> 绝对静默
+                // log('Logic', 'Stock persists. Silent.');
                 state.wasInStock = true;
             }
         } else {
+            // 场景: 1 -> 0 (售罄)
+            // 只有当"之前状态是有货"时，才触发通知
             if (state.wasInStock) {
-                await notify(`🔴 ${CFG.SITE.NAME} 售罄`, 'SOLDOUT');
+                await notify(`🔴 ${CFG.SITE.NAME} 已售罄`, 'SOLDOUT');
                 state.wasInStock = false;
-                state.lastNotify = 0;
+                // 售罄不更新 lastNotify，确保下一次补货能立即触发
             }
         }
 
@@ -213,14 +226,15 @@ app.get('/', (req, res) => res.send(`
 <style>
 body{font-family:sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#333;transition:0.3s}
 .card{background:#fff;padding:25px;border-radius:12px;box-shadow:0 4px 15px rgba(0,0,0,0.05);max-width:800px;margin:0 auto}
-.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
-.status{padding:20px;border-radius:8px;text-align:center;font-weight:bold;font-size:1.5em;margin-bottom:20px}
+.header{display:flex;justify-content:space-between;align-items:center}
+.status{padding:20px;border-radius:8px;text-align:center;font-weight:bold;font-size:1.5em;margin:20px 0}
 .s-ok{background:#e3f2fd;color:#1565c0}
-.s-alert{background:#c62828;color:#fff}
+.s-alert{background:#c62828;color:#fff;animation:pulse 0.5s infinite}
 .item{padding:15px;border-bottom:1px solid #eee;display:flex;justify-content:space-between;font-size:1.2em}
 .cnt{color:#28a745;font-weight:bold}
 .log{background:#1e1e1e;color:#82aaff;padding:15px;height:250px;overflow-y:auto;font-size:12px;white-space:pre-wrap;border-radius:8px;font-family:monospace}
 .btn{width:100%;padding:15px;background:#ff9800;color:white;border:none;border-radius:8px;font-size:1.2em;cursor:pointer;display:none}
+@keyframes pulse{0%{opacity:1}50%{opacity:0.8}} .flash-bg{background:#ffcdd2}
 </style></head><body>
 <div class="card">
     <div class="header"><h2>🛡️ PerMonitorH</h2><small id="t">-</small></div>
@@ -230,7 +244,7 @@ body{font-family:sans-serif;margin:0;padding:20px;background:#f8f9fa;color:#333;
 </div>
 <script>
 let alarm=false, lastHash='', colorIdx=0;
-const colors=['#28a745','#ff9800','#2196f3','#9c27b0']; // 绿,橙,蓝,紫
+const colors=['#28a745','#ff9800','#2196f3','#9c27b0'];
 const okI="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🛡️</text></svg>";
 const snd=new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
 
@@ -248,19 +262,16 @@ function updateIcon(isChange) {
 function load(){
     fetch('/api/data').then(r=>r.json()).then(d=>{
         document.getElementById('t').innerText=d.lastCheck;
-        const box=document.getElementById('box');
+        const box=document.getElementById('box'), list=document.getElementById('list');
         const currentHash = JSON.stringify(d.items);
         
         if(d.items.length>0){
-            // 有货
             box.className='status s-alert';
             box.innerText=\`🚨 发现 \${d.items.length} 个资源！\`;
             
-            // 图标逻辑: 如果数据变了，换个颜色；没变，保持原色
             if(currentHash !== lastHash) updateIcon(true);
             else updateIcon(false);
             
-            // 声音逻辑
             if(!alarm && document.getElementById('btn').style.display==='none') alarm=true;
             if(alarm){
                 document.getElementById('btn').style.display='block';
@@ -268,7 +279,6 @@ function load(){
                 document.title = \`【!!! 有货 \${d.items.length} !!!】\`;
             }
         } else {
-            // 无货
             alarm=false;
             document.getElementById('btn').style.display='none';
             box.className='status s-ok'; 
@@ -278,15 +288,13 @@ function load(){
         }
         
         lastHash = currentHash;
-        
-        document.getElementById('list').innerHTML=d.items.length?d.items.map(i=>\`<div class="item"><span>\${i.name}</span><span class="cnt">\${i.count}</span></div>\`).join(''):'<div style="padding:15px;text-align:center;color:#999">无库存</div>';
+        list.innerHTML=d.items.length?d.items.map(i=>\`<div class="item"><span>\${i.name}</span><span class="cnt">\${i.count}</span></div>\`).join(''):'<div style="padding:15px;text-align:center;color:#999">无库存</div>';
         document.getElementById('logs').innerText=d.logs.join('\\n');
     });
 }
 setInterval(load, ${CFG.APP.INTERVAL}); load();
 </script></body></html>`));
 
-// Start
 app.listen(CFG.APP.PORT, async () => {
     console.log(`[System] Web UI: http://localhost:${CFG.APP.PORT}`);
     if (CFG.SMTP.OPEN) try { await mailer.verify(); log('SMTP', '✅ OK'); } catch (e) { log('SMTP', e.message); }
